@@ -22,9 +22,16 @@ st.set_page_config(
     layout="wide"
 )
 
-# Path to the DuckDB file — works both locally and on HF Spaces
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DB_PATH = os.path.join(ROOT, "output", "sales.duckdb")
+# Path to the DuckDB file — resolved to work locally AND on HF Spaces.
+# On HF Spaces, app.py is the entrypoint at repo root, so CWD = repo root.
+# Locally, app.py lives in dashboard/, so we walk up one level.
+_here = os.path.dirname(os.path.abspath(__file__))
+_candidates = [
+    os.path.join(_here, "output", "sales.duckdb"),          # if run from dashboard/
+    os.path.join(_here, "..", "output", "sales.duckdb"),     # standard local layout
+    os.path.join(os.getcwd(), "output", "sales.duckdb"),     # HF Spaces / CWD
+]
+DB_PATH = next((p for p in _candidates if os.path.exists(p)), _candidates[1])
 
 
 # -----------------------------------------------------------------------
