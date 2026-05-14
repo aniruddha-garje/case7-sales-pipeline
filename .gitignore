@@ -223,3 +223,8 @@ __marimo__/
 !output/sales.duckdb
 !dashboard/output/sales.duckdb
 deck/*.pdf
+
+# Local tooling / IDE
+.claude/
+duckdb.exe
+pip
