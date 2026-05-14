@@ -1,158 +1,118 @@
 # Case 7: Streaming Sales Pipeline — From CSV Chaos to a Trusted Dashboard
 
-> **Live Dashboard:** [Add Hugging Face Spaces URL here after deployment]
-> **GitHub:** https://github.com/aniruddha-garje/case7-sales-pipeline
-
-An e-commerce startup drops daily sales CSVs into a shared folder. Different teams report different revenue numbers. This pipeline produces **one trusted number**, proves it's trustworthy, and gives the CFO a dashboard she can rely on.
+**Live demo:** https://huggingface.co/spaces/AniruddhaGarje/case7-sales-dashboard
+**Repo:** https://github.com/aniruddha-garje/case7-sales-pipeline
+**Demo video:** _(add Loom link)_
 
 ---
 
-## Verified Pipeline Output
+## What this is
+
+An e-commerce startup was getting different revenue numbers from every team because each team counted CSVs differently — duplicates, late files, null prices, and schema changes were all silently corrupting results. This pipeline ingests 30 daily sales CSVs for March 2025, detects and resolves all 4 data-quality issues automatically, and delivers a single auditable revenue number with a CFO-facing dashboard that shows exactly what was fixed and why.
+
+---
+
+## Verified pipeline output
 
 | Metric | Value |
 |--------|-------|
 | Total Revenue (March 2025) | **Rs. 10,276,245.96** |
-| Total Orders | **205,903** |
+| Total Orders (after dedup + quarantine) | **205,903** |
 | Unique Customers | **49,173** |
 | Avg Order Value | **Rs. 49.91** |
 | Raw rows ingested | 214,300 |
 | Duplicates removed | 6,152 |
-| Rows quarantined (null unit_price) | 2,245 |
+| Rows quarantined (null `unit_price`) | 2,245 |
+| DQ issues detected | **4 / 4** |
 
 ---
 
-## Problem Statement
+## How to run locally
 
-- 30 daily CSV files for March 2025 (~5,000–10,000 rows/day, ~19 MB total)
-- 4 intentional data-quality issues discovered during EDA: duplication, missing file, schema drift, null spike
-- Goal: single clean fact table + live dashboard with full DQ transparency
+```bash
+# 1. Clone
+git clone https://github.com/aniruddha-garje/case7-sales-pipeline.git
+cd case7-sales-pipeline
+
+# 2. Install dependencies
+python -m venv venv
+venv\Scripts\activate        # Windows — use source venv/bin/activate on Mac/Linux
+pip install -r requirements.txt
+
+# 3. Run the full pipeline  (ingest → DQ checks → transform → warehouse)
+python pipeline/run_pipeline.py
+
+# 4. Launch the dashboard
+streamlit run dashboard/app.py
+# → opens at http://localhost:8501
+```
+
+The pipeline is **idempotent** — safe to re-run any number of times; always produces the same output.
 
 ---
 
-## Tech Stack
+## Stack
 
 | Layer | Tool | Why |
 |-------|------|-----|
-| Ingestion | Python + glob + pandas | Simple, readable, no orchestrator overhead |
-| DQ Checks | Custom Python | Evaluators see the logic, not a library's |
-| Warehouse | DuckDB | Embedded, zero config, SQL interface |
-| Transforms | SQL via DuckDB | Clean, evaluator-friendly |
-| Dashboard | Streamlit + Plotly | Fast to build, free HF Spaces deployment |
-| Deployment | Hugging Face Spaces | Free tier, auto-builds from git push |
+| Ingestion | Python + glob + pandas | 30 static CSVs don't need an orchestrator — plain functions are more readable and debuggable |
+| DQ Checks | Custom Python (5 checks) | Evaluators see my logic, not a library's abstraction; straightforward to extend |
+| Warehouse | DuckDB (embedded) | Zero config, full SQL analytics dialect, reads CSVs natively, single `.duckdb` file for HF Spaces |
+| Transforms | Raw SQL via DuckDB | 3-4 transforms don't justify dbt scaffolding; SQL is self-documenting |
+| Dashboard | Streamlit + Plotly | Free HF Spaces deployment, 3 functional tabs built without frontend overhead |
+| Deployment | Hugging Face Spaces (Docker) | Free tier; pre-built `.duckdb` committed to repo — no live pipeline needed on HF |
 
 ---
 
-## The 4 DQ Issues Found (EDA → `notebooks/eda.py`)
+## The 4 DQ issues found and fixed
 
-| # | Issue | File | Impact | Fix |
-|---|-------|------|--------|-----|
-| 1 | **Duplication** | `sales_2025-03-15.csv` is a full re-delivery of March 14 | 6,152 excess rows | Dedup on `order_id`, keep latest `_load_timestamp` |
-| 2 | **Missing file** | `sales_2025-03-31.csv` absent from all directories | Entire day of revenue missing | DQ check flags date gap; `late_arrivals/` scanned on every run |
-| 3 | **Schema drift** | `sales_2025-03-22.csv` has `item_name` + extra `channel` col | Would break INSERT schema | Rename `item_name`→`product_name`, drop `channel` at ingest |
-| 4 | **Null spike** | `sales_2025-03-26.csv`: `unit_price` 35% null (2,245 rows) | Revenue miscalculation | Quarantine null rows to `quarantine_orders`, exclude from revenue |
-
----
-
-## How to Run Locally
-
-### 1. Clone the repo
-```bash
-git clone https://github.com/aniruddha-garje/case7-sales-pipeline.git
-cd case7-sales-pipeline
-```
-
-### 2. Set up Python environment
-```bash
-python -m venv venv
-venv\Scripts\activate        # Windows
-pip install -r requirements.txt
-```
-
-### 3. Run the full pipeline
-```bash
-python pipeline/run_pipeline.py
-```
-
-Output: `output/sales.duckdb` with all cleaned tables + DQ results.
-
-### 4. Launch the dashboard
-```bash
-streamlit run dashboard/app.py
-```
-
-Opens at `http://localhost:8501`
-
-### 5. (Optional) Run EDA to see DQ discovery
-```bash
-python notebooks/eda.py
-```
-
-### 6. (Optional) Query the database directly
-```bash
-venv\Scripts\python.exe -c "import duckdb; con=duckdb.connect('output/sales.duckdb'); print(con.execute('SELECT * FROM daily_revenue').df())"
-```
+| # | Type | File | Impact | Fix |
+|---|------|------|--------|-----|
+| 1 | **Duplication** | `sales_2025-03-15.csv` is a full re-send of March 14 | 6,152 excess rows; ~Rs. 300k revenue overcount | Dedup on `order_id`, keep latest `_load_timestamp` |
+| 2 | **Late file** | `sales_2025-03-18.csv` landed in `late_arrivals/` subfolder, not main folder | Entire day silently missing from revenue | Ingestion scans both `datasets/` and `datasets/late_arrivals/` on every run |
+| 3 | **Schema drift** | `sales_2025-03-22.csv` has `item_name` column + extra `channel` column | Breaks INSERT, corrupts downstream joins | Rename `item_name` → `product_name`, drop `channel` at ingest time |
+| 4 | **Null spike** | `sales_2025-03-26.csv`: `unit_price` 35% null (2,245 rows) | Revenue calculation on null price → silent miscalculation | Quarantine null rows to `quarantine_orders`, exclude from `fact_orders` and all revenue metrics |
 
 ---
 
-## Project Structure
+## Project structure
 
 ```
 case7-sales-pipeline/
 ├── pipeline/
-│   ├── ingest.py           # Scan both folders, load CSVs, normalize schema, tag lineage
-│   ├── quality_checks.py   # 5 DQ checks → dq_results table
-│   ├── transform.py        # Dedup + quarantine + fact/dim tables
-│   └── run_pipeline.py     # End-to-end orchestration with logging
+│   ├── ingest.py           # Scan both folders, normalize schema, tag lineage (_source_file, _file_date)
+│   ├── quality_checks.py   # 5 DQ checks → structured results stored in dq_results table
+│   ├── transform.py        # Dedup → quarantine → fact_orders → dim tables
+│   └── run_pipeline.py     # Orchestration: ingest → check → transform → summary log
 ├── dashboard/
-│   └── app.py              # Streamlit: Revenue / Products / DQ Status tabs
-├── sql/
-│   ├── create_raw.sql      # raw_orders DDL
-│   ├── create_clean.sql    # Dedup logic
-│   ├── fact_orders.sql     # Revenue calculation
-│   ├── dim_products.sql    # Product dimension
-│   ├── dim_dates.sql       # Date dimension
-│   └── daily_revenue.sql   # Aggregated view
-├── notebooks/
-│   └── eda.py              # Discovers all 4 DQ issues before pipeline build
+│   └── app.py              # 3 tabs: Revenue Performance / Product Intelligence / DQ Audit
 ├── docs/
-│   ├── data_contract.md    # Schema, delivery SLA, break-handling table
-│   ├── cfo_investigation.md # 10-minute revenue change runbook with SQL
-│   ├── dq_findings.md      # All 4 issues: file, row count, pipeline action
-│   └── data_lineage.md     # Mermaid flowchart: CSV → raw → clean → fact → dashboard
-├── datasets/               # 30 CSV files + late_arrivals/ subfolder
+│   ├── data_contract.md    # Schema, delivery SLA, break-handling per violation type
+│   ├── cfo_investigation.md # 10-minute runbook: "why did Monday's revenue change by 3%?"
+│   ├── dq_findings.md      # All 4 issues: discovery method, row count, pipeline action
+│   └── data_lineage.md     # Mermaid diagram: CSV → raw → clean → fact → dashboard
+├── datasets/               # 29 main-folder CSVs + late_arrivals/sales_2025-03-18.csv
 ├── output/
-│   └── sales.duckdb        # Pre-built warehouse (committed for HF Spaces)
-├── DECISIONS.md            # 8 ADRs: why DuckDB, no Airflow, no dbt, etc.
+│   └── sales.duckdb        # Pre-built warehouse (committed so HF Spaces serves without a pipeline run)
 └── requirements.txt
 ```
 
 ---
 
-## Key Design Decisions
+## What's NOT done
 
-See `DECISIONS.md` for full rationale. Headlines:
-
-- **No Airflow/Prefect** — one-shot batch on 30 static files; orchestrator overhead not justified
-- **No dbt** — 3-4 SQL transforms don't need dbt scaffolding; raw SQL is more readable for evaluators
-- **No Great Expectations** — custom checks expose the logic; evaluators see YOUR reasoning
-- **Idempotent pipeline** — every step is DROP IF EXISTS + CREATE; safe to re-run identically
-- **Lineage on every row** — `_source_file` + `_file_date` survive to `fact_orders`; any number traces back to its CSV
+- **No real-time ingestion** — daily batch is the correct fit for daily file delivery; streaming adds latency management complexity with no benefit here
+- **No SCD2 on products** — product dimension is latest-state only; `effective_from` / `effective_to` columns needed in production to track price history
+- **No alerting** — DQ failures are visible on the dashboard but send no notifications; Prefect + Slack would cover this in production
+- **No automated test suite** — pipeline correctness verified by row-count assertions in `run_pipeline.py`; a proper pytest suite is absent
+- **No access control** — DuckDB is single-file, single-writer; correct for a demo, not for multi-user production
 
 ---
 
-## What's Not Done (and why)
+## In production I would also add
 
-- No real-time streaming — daily batch is appropriate for daily file delivery
-- No SCD2 on products — latest-state dimension only; would add `effective_from/to` in production
-- No alerting — DQ failures visible on dashboard; no Slack/email (Prefect would add this)
-- No concurrent writes — DuckDB is single-writer; Postgres/BigQuery for multi-user production
-
----
-
-## In Production I Would Add
-
-1. **Prefect** with daily cron schedule, automatic retries, and Slack alerts on DQ FAIL
-2. **SCD2 product dimension** — track price/category changes over time
-3. **pytest suite** — one test per pipeline stage verifying row counts and revenue totals
-4. **Postgres or BigQuery** — for concurrent writers and access control
-5. **Row-level audit log** — append-only table recording every pipeline run's metrics
+1. **Prefect orchestration** — daily scheduled flow with automatic retries on transient failures and Slack/email alerts on any DQ FAIL status
+2. **pytest suite** — one test per pipeline stage: assert row counts, assert zero duplicates in `fact_orders`, assert revenue total matches a known snapshot
+3. **SCD2 product dimension** — append-only with `effective_from` / `effective_to` to catch silent price and category changes over time
+4. **Postgres or BigQuery** — replaces DuckDB for concurrent access, role-based access control, and column-level encryption on customer data
+5. **Incremental loads** — replace full DROP + CREATE with `INSERT WHERE order_date > last_loaded_date` to keep runtime flat as data volume grows
