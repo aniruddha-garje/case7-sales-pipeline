@@ -221,4 +221,5 @@ __marimo__/
 # output/sales.duckdb is committed so HF Spaces can serve the dashboard without running the pipeline
 *.duckdb
 !output/sales.duckdb
+!dashboard/output/sales.duckdb
 deck/*.pdf
