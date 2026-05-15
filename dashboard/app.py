@@ -201,10 +201,11 @@ if not os.path.exists(DB_PATH):
     st.stop()
 
 # ── Tabs ───────────────────────────────────────────────────────────────────────
-tab1, tab2, tab3 = st.tabs([
+tab1, tab2, tab3, tab4 = st.tabs([
     "  Revenue Performance  ",
     "  Product Intelligence  ",
     "  Data Quality Audit  ",
+    "  Data Lineage  ",
 ])
 
 
@@ -858,3 +859,173 @@ with tab3:
             st.plotly_chart(fig_quar, use_container_width=True)
     except Exception:
         st.info("quarantine_orders table not found. Re-run the pipeline to generate it.")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TAB 4 — DATA LINEAGE
+# ══════════════════════════════════════════════════════════════════════════════
+with tab4:
+
+    st.markdown('<div class="section-label">Pipeline Data Lineage — CSV to Dashboard</div>',
+                unsafe_allow_html=True)
+
+    # ── Lineage diagram built with Plotly (no CDN, no external deps) ─────────
+    def _lineage_figure():
+        C = {
+            "src":  "#1565c0", "ing":  "#2e7d32", "raw":  "#4a148c",
+            "dq":   "#bf360c", "meta": "#b71c1c", "trf":  "#1b5e20",
+            "cln":  "#1a237e", "wrn":  "#e65100", "qur":  "#6d0000",
+            "fct":  "#01579b", "dim":  "#004d40", "dsh":  "#880e4f",
+        }
+        # (label_html, cx, cy, w, h, color)
+        N = {
+            "csv1": ("datasets/<br>sales_*.csv<br>(30 files)",         0.65, 3.55, 1.05, 0.75, C["src"]),
+            "csv2": ("late_arrivals/<br>sales_*.csv<br>(1 file)",      0.65, 1.55, 1.05, 0.75, C["src"]),
+            "ing":  ("ingest.py<br>+ lineage<br>metadata",             2.10, 2.55, 1.05, 0.75, C["ing"]),
+            "raw":  ("raw_orders<br>all rows",                         3.45, 2.55, 0.95, 0.60, C["raw"]),
+            "dqc":  ("quality_checks<br>.py  ·  5 checks",            5.00, 4.20, 1.30, 0.55, C["dq"]),
+            "dqr":  ("dq_results<br>PASS / WARN / FAIL",              6.65, 4.20, 1.25, 0.55, C["meta"]),
+            "trf":  ("transform.py<br>deduplication",                  5.00, 2.55, 1.10, 0.55, C["trf"]),
+            "cln":  ("clean_orders<br>deduped on order_id",            6.65, 2.55, 1.20, 0.55, C["cln"]),
+            "nul":  ("null<br>check",                                  7.90, 2.55, 0.75, 0.55, C["wrn"]),
+            "qur":  ("quarantine_orders<br>excluded from revenue",     9.10, 1.10, 1.35, 0.55, C["qur"]),
+            "fct":  ("fact_orders<br>+ revenue",                       9.10, 2.90, 1.10, 0.55, C["fct"]),
+            "dp":   ("dim_products",                                   10.55, 4.00, 1.00, 0.42, C["dim"]),
+            "dd":   ("dim_dates",                                      10.55, 3.22, 1.00, 0.42, C["dim"]),
+            "vw":   ("daily_revenue<br>VIEW",                          10.55, 2.44, 1.00, 0.42, C["dim"]),
+            "dsh":  ("Dashboard<br>3 tabs",                            10.55, 0.55, 1.05, 0.55, C["dsh"]),
+        }
+        edges = [
+            ("csv1","ing","#4a90d9"),("csv2","ing","#4a90d9"),
+            ("ing","raw","#4a90d9"),
+            ("raw","dqc","#ff7043"),("raw","trf","#4a90d9"),
+            ("dqc","dqr","#ff7043"),
+            ("trf","cln","#4a90d9"),("cln","nul","#4a90d9"),
+            ("nul","fct","#4fc3f7"),("nul","qur","#ef5350"),
+            ("fct","dp","#80cbc4"),("fct","dd","#80cbc4"),("fct","vw","#80cbc4"),
+            ("vw","dsh","#00c4ff"),("dqr","dsh","#ff7043"),("qur","dsh","#ef5350"),
+        ]
+        fig = go.Figure()
+        fig.update_layout(
+            paper_bgcolor="#0d1b2a", plot_bgcolor="#0d1b2a",
+            showlegend=False, height=490,
+            xaxis=dict(visible=False, range=[-0.2, 11.3]),
+            yaxis=dict(visible=False, range=[0.0, 5.0]),
+            margin=dict(l=4, r=4, t=12, b=4),
+        )
+        # Draw edges first (behind nodes)
+        for src, dst, col in edges:
+            sx, sy, sw = N[src][1], N[src][2], N[src][3]
+            dx, dy, dw = N[dst][1], N[dst][2], N[dst][3]
+            x0 = sx + sw/2 if dx >= sx else sx - sw/2
+            x1 = dx - dw/2 if dx >= sx else dx + dw/2
+            fig.add_annotation(
+                x=x1, y=dy, ax=x0, ay=sy,
+                xref="x", yref="y", axref="x", ayref="y",
+                showarrow=True, arrowhead=2, arrowsize=1,
+                arrowwidth=1.6, arrowcolor=col, text="",
+            )
+        # Draw nodes
+        for nid, (lbl, cx, cy, w, h, col) in N.items():
+            fig.add_shape(type="rect",
+                x0=cx-w/2, y0=cy-h/2, x1=cx+w/2, y1=cy+h/2,
+                fillcolor=col, line=dict(color="rgba(255,255,255,0.33)", width=0.8),
+            )
+            fig.add_annotation(
+                x=cx, y=cy, text=lbl, showarrow=False,
+                font=dict(size=8.5, color="white", family="Arial"),
+                align="center", xanchor="center", yanchor="middle",
+            )
+        return fig
+
+    st.plotly_chart(_lineage_figure(), use_container_width=True, config={"displayModeBar": False})
+
+    # ── Table Descriptions ─────────────────────────────────────────────────────
+    st.markdown('<div class="section-label">Table Catalogue</div>', unsafe_allow_html=True)
+
+    catalogue = [
+        ("raw_orders",        "Raw",        "All ingested rows. Every source file row lands here unchanged."),
+        ("dq_results",        "Meta",       "Output of 5 DQ checks. Dashboard DQ tab reads this."),
+        ("clean_orders",      "Clean",      "Deduplicated: one row per order_id (latest load wins)."),
+        ("quarantine_orders", "Quarantine", "Rows with nulls in critical fields — excluded from revenue."),
+        ("fact_orders",       "Modelled",   "Clean rows with calculated revenue. Single source of truth."),
+        ("dim_products",      "Dimension",  "One row per product (latest state)."),
+        ("dim_dates",         "Dimension",  "One row per date with calendar attributes (DOW, is_weekend)."),
+        ("daily_revenue",     "View",       "Aggregated revenue per day. Dashboard's primary data source."),
+    ]
+
+    LAYER_COLORS = {
+        "Raw":        "#c0392b",
+        "Meta":       "#8e44ad",
+        "Clean":      "#2471a3",
+        "Quarantine": "#d35400",
+        "Modelled":   "#1e8449",
+        "Dimension":  "#117a65",
+        "View":       "#1a5276",
+    }
+
+    rows_html = ""
+    for table, layer, desc in catalogue:
+        color = LAYER_COLORS.get(layer, "#555")
+        rows_html += (
+            f"<tr>"
+            f"<td style='padding:8px 12px;color:#e8f0f7;font-family:monospace;font-size:12px'>{table}</td>"
+            f"<td style='padding:8px 12px;text-align:center'>"
+            f"  <span style='background:{color};color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600'>{layer}</span>"
+            f"</td>"
+            f"<td style='padding:8px 12px;color:#8fa3b1;font-size:12px'>{desc}</td>"
+            f"</tr>"
+        )
+
+    cat_html = (
+        "<div style='overflow-x:auto'>"
+        "<table style='width:100%;border-collapse:collapse;font-family:Inter,sans-serif'>"
+        "<thead><tr style='border-bottom:1px solid #1e3a4a'>"
+        "<th style='padding:8px 12px;text-align:left;color:#00c4ff;font-size:11px;text-transform:uppercase;letter-spacing:.08em'>Table</th>"
+        "<th style='padding:8px 12px;text-align:center;color:#00c4ff;font-size:11px;text-transform:uppercase;letter-spacing:.08em'>Layer</th>"
+        "<th style='padding:8px 12px;text-align:left;color:#00c4ff;font-size:11px;text-transform:uppercase;letter-spacing:.08em'>Description</th>"
+        f"</tr></thead><tbody>{rows_html}</tbody></table></div>"
+    )
+    st.html(cat_html)
+
+    # ── Lineage columns ────────────────────────────────────────────────────────
+    st.markdown('<div class="section-label" style="margin-top:20px">Row-level Lineage Columns</div>',
+                unsafe_allow_html=True)
+    st.markdown("""
+    <div style="background:#1a2b3c;border:1px solid #1e3a4a;border-radius:8px;padding:16px 20px;font-size:13px;color:#8fa3b1;line-height:1.8">
+      Every row in <code style="color:#e8f0f7">fact_orders</code> retains two lineage columns added during ingestion:<br>
+      &nbsp;&nbsp;• <code style="color:#00c4ff">_source_file</code> — the exact CSV filename
+        (e.g. <code>sales_2025-03-01.csv</code>)<br>
+      &nbsp;&nbsp;• <code style="color:#00c4ff">_file_date</code> — the date that file represents<br><br>
+      This means any revenue figure can be drilled back to its originating file in seconds —
+      the foundation of the CFO investigation runbook.
+    </div>
+    """, unsafe_allow_html=True)
+
+    # ── Live row counts per table ──────────────────────────────────────────────
+    st.markdown('<div class="section-label" style="margin-top:20px">Live Row Counts</div>',
+                unsafe_allow_html=True)
+
+    count_tables = [
+        ("raw_orders", "Raw"),
+        ("clean_orders", "Clean"),
+        ("fact_orders", "Modelled"),
+        ("quarantine_orders", "Quarantine"),
+    ]
+    count_cols = st.columns(len(count_tables))
+    for col, (tbl, layer) in zip(count_cols, count_tables):
+        try:
+            n = con.execute(f"SELECT COUNT(*) FROM {tbl}").fetchone()[0]
+            color = LAYER_COLORS.get(layer, "#555")
+            col.markdown(
+                f"<div style='background:#1a2b3c;border:1px solid #1e3a4a;border-radius:8px;"
+                f"padding:14px;text-align:center'>"
+                f"<div style='font-size:10px;font-weight:700;letter-spacing:.1em;color:{color};"
+                f"text-transform:uppercase;margin-bottom:6px'>{tbl}</div>"
+                f"<div style='font-size:24px;font-weight:800;color:#e8f0f7'>{n:,}</div>"
+                f"<div style='font-size:10px;color:#8fa3b1;margin-top:2px'>{layer} layer</div>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+        except Exception:
+            col.info(f"{tbl} not found")
